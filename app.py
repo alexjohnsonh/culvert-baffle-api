@@ -1,10 +1,12 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 import matplotlib
 matplotlib.use("Agg")  # no GUI
 import matplotlib.pyplot as plt
 import numpy as np
 import tempfile
 import base64
+import uuid
+import os
 from matplotlib.patches import Rectangle
 
 app = Flask(__name__)
@@ -75,7 +77,7 @@ def generate_drawing(data, filename):
     x_positions = [i * spacing_m for i in range(1, n_baffles + 1) if i * spacing_m <= length_m]
 
     # ---- figure & axes ----
-    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(10, 7))
+    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(8, 6))  # Smaller figure
     
     if shape == "round":
         title = f"Culvert {length_m:g}m | Ø{int(round(diameter_m*1000))}mm | Gradient {round(gradient*100,1)}%"
@@ -281,8 +283,17 @@ def generate_drawing(data, filename):
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
     
-    plt.savefig(filename, dpi=100, bbox_inches='tight', facecolor='white')
+    plt.savefig(filename, dpi=80, bbox_inches='tight', facecolor='white')  # Reduced DPI
     plt.close(fig)
+
+
+@app.route("/download/<filename>")
+def download_file(filename):
+    """Serve files for download"""
+    if os.path.exists(filename) and filename.endswith('.png'):
+        return send_file(filename, as_attachment=True, download_name='culvert_schematic.png')
+    else:
+        return "File not found", 404
 
 
 @app.route("/flexibaffle_drawings", methods=["POST"])
@@ -323,13 +334,26 @@ def flexibaffle_drawings():
             
         print(f"Successfully parsed payload: {payload}")
 
-        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-            generate_drawing(payload, tmp.name)
-            with open(tmp.name, 'rb') as img_file:
-                img_b64 = base64.b64encode(img_file.read()).decode("utf-8")
+        # Generate unique filename for this request
+        file_id = str(uuid.uuid4())
+        permanent_filename = f"{file_id}.png"
+        
+        # Generate the drawing
+        generate_drawing(payload, permanent_filename)
+        
+        # Read the file for base64 encoding (backup method)
+        with open(permanent_filename, 'rb') as img_file:
+            img_b64 = base64.b64encode(img_file.read()).decode("utf-8")
 
+        # Return both download URL and base64 (for flexibility)
+        download_url = f"https://culvert-baffle-api.onrender.com/download/{permanent_filename}"
+        
         print("Image generated successfully")
-        return jsonify({"image_base64": img_b64, "status": "success"})
+        return jsonify({
+            "download_url": download_url,
+            "image_base64": img_b64,
+            "status": "success"
+        })
         
     except Exception as e:
         print(f"Error: {str(e)}")
