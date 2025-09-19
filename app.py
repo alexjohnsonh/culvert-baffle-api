@@ -75,7 +75,7 @@ def generate_drawing(data, filename):
     x_positions = [i * spacing_m for i in range(1, n_baffles + 1) if i * spacing_m <= length_m]
 
     # ---- figure & axes ----
-    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))
+    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(10, 7))
     
     if shape == "round":
         title = f"Culvert {length_m:g}m | Ø{int(round(diameter_m*1000))}mm | Gradient {round(gradient*100,1)}%"
@@ -281,7 +281,7 @@ def generate_drawing(data, filename):
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
     
-    plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')
+    plt.savefig(filename, dpi=100, bbox_inches='tight', facecolor='white')
     plt.close(fig)
 
 
