@@ -8,11 +8,30 @@ import base64
 import uuid
 import os
 from matplotlib.patches import Rectangle
+import re
 
 app = Flask(__name__)
 
 def mm_to_m(v): 
     return float(v) / 1000.0
+
+def parse_gradient(gradient_str):
+    """Parse gradient string and handle 'greater than X%' format"""
+    gradient_str = str(gradient_str).lower()
+    
+    # Handle "greater than X%" format - extract the number and use it
+    if "greater than" in gradient_str:
+        # Extract number after "greater than"
+        match = re.search(r'greater than\s*(\d+(?:\.\d+)?)', gradient_str)
+        if match:
+            return float(match.group(1)) / 100.0
+    
+    # Handle standard "X%" format
+    gradient_str = gradient_str.replace("%", "")
+    try:
+        return float(gradient_str) / 100.0
+    except:
+        return 0.0  # Default to 0% if parsing fails
 
 def generate_drawing(data, filename):
     # ---- inputs & defaults ----
@@ -23,9 +42,9 @@ def generate_drawing(data, filename):
     diameter_str = str(data.get("diameter", "1200 mm")).replace(" mm", "")
     diameter_m = mm_to_m(float(diameter_str))
     
-    # Handle gradient with % symbol
-    gradient_str = str(data.get("gradient", "0%")).replace("%", "")
-    gradient = float(gradient_str) / 100.0
+    # Handle gradient with improved parsing
+    gradient_str = str(data.get("gradient", "0%"))
+    gradient = parse_gradient(gradient_str)
     
     # Handle baffle measurements with units
     baffle_h_str = str(data.get("baffleHeight", "150 mm")).replace(" mm", "")
@@ -56,7 +75,6 @@ def generate_drawing(data, filename):
         if shape == "round":
             # Round culverts: always 50mm offset
             lateral_offset_m = 0.05  # 50mm
-            # baffle_len_m already set from Zapier data above
         else:
             # Box culverts: alternating pattern, baffle length already calculated by Zapier
             lateral_offset_m = 0.0  # Will handle alternating in the drawing loop
@@ -64,7 +82,9 @@ def generate_drawing(data, filename):
         # Centered installation
         placement = "centered"  
         lateral_offset_m = 0.0
-        # baffle_len_m already set from Zapier data above
+        # For box culverts, centered baffles should span full width
+        if shape == "box":
+            baffle_len_m = box_h_m  # Full width for centered box culvert baffles
 
     # Safety clamps
     length_m      = max(0.5, length_m)
@@ -216,34 +236,46 @@ def generate_drawing(data, filename):
                 ha='center', va='center', fontsize=11, fontweight='bold', color='#16416f',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#89ccea"))
 
-    # Draw baffles in plan view with alternating logic for box culverts
+    # Draw baffles in plan view with improved alternating logic for box culverts
     for i, x in enumerate(x_positions):
-        if placement == "offset" and shape != "round":
-            # Box culvert alternating pattern
-            if i % 2 == 0:  # Even baffles: left side
-                y_center = culvert_width/2 - baffle_len_m/2
-            else:  # Odd baffles: right side  
-                y_center = -culvert_width/2 + baffle_len_m/2
+        if placement == "offset" and shape == "box":
+            # Box culvert alternating pattern - fixed positioning
+            if i % 2 == 0:  # Even baffles: positioned toward top
+                y_start = -culvert_width/2
+                y_end = y_start + baffle_len_m
+            else:  # Odd baffles: positioned toward bottom
+                y_start = culvert_width/2 - baffle_len_m
+                y_end = culvert_width/2
+        elif placement == "centered":
+            # Centered baffles - span full width for box, use baffle_len_m for round
+            if shape == "box":
+                y_start = -culvert_width/2
+                y_end = culvert_width/2
+            else:  # round
+                y_center = lateral_offset_m
+                y_start = y_center - baffle_len_m/2
+                y_end = y_center + baffle_len_m/2
         else:
-            # Standard centered or round offset positioning
+            # Round culvert offset (50mm)
             y_center = lateral_offset_m
+            y_start = y_center - baffle_len_m/2
+            y_end = y_center + baffle_len_m/2
         
-        y1 = y_center - baffle_len_m/2
-        y2 = y_center + baffle_len_m/2
-        ax_plan.plot([x, x], [y1, y2], color='#16416f', linewidth=3)
+        ax_plan.plot([x, x], [y_start, y_end], color='#16416f', linewidth=3)
 
     # Baffle length dimension - positioned closer to avoid overlap
-    if x_positions:
-        # Use the first baffle and position dimension closer
+    if x_positions and placement != "centered" or shape == "round":
+        # Only show baffle length dimension if not full-width centered
         x_ref = x_positions[0]
-        if placement == "offset" and shape != "round":
-            # For alternating baffles, show dimension on first (left side) baffle
-            y_center = culvert_width/2 - baffle_len_m/2
+        if placement == "offset" and shape == "box":
+            # For alternating baffles, show dimension on first (top) baffle
+            y_center = -culvert_width/2 + baffle_len_m/2
+            y1_ref = -culvert_width/2
+            y2_ref = -culvert_width/2 + baffle_len_m
         else:
             y_center = lateral_offset_m
-        
-        y1_ref = y_center - baffle_len_m/2
-        y2_ref = y_center + baffle_len_m/2
+            y1_ref = y_center - baffle_len_m/2
+            y2_ref = y_center + baffle_len_m/2
         
         # Position dimension line closer to the baffle to avoid overlap with next baffle
         x_dim = x_ref + 0.15  # Much closer to avoid overlap
