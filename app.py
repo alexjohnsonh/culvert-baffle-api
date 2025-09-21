@@ -17,20 +17,42 @@ def mm_to_m(v):
 
 def parse_gradient(gradient_str):
     """Parse gradient string and handle 'greater than X%' format"""
+    original_str = str(gradient_str)
     gradient_str = str(gradient_str).lower()
+    
+    # Debug logging
+    print(f"Gradient parsing - Original: '{original_str}', Lowercase: '{gradient_str}'")
+    
+    # Handle NaN case
+    if "nan" in gradient_str or gradient_str == "nan%":
+        print("Detected NaN gradient, returning 0.0")
+        return 0.0
     
     # Handle "greater than X%" format - extract the number and use it
     if "greater than" in gradient_str:
+        print("Detected 'greater than' format")
         # Extract number after "greater than"
         match = re.search(r'greater than\s*(\d+(?:\.\d+)?)', gradient_str)
         if match:
-            return float(match.group(1)) / 100.0
+            value = float(match.group(1)) / 100.0
+            print(f"Extracted value: {value}")
+            return value
+        else:
+            print("Could not extract number from 'greater than' format")
     
     # Handle standard "X%" format
     gradient_str = gradient_str.replace("%", "")
     try:
-        return float(gradient_str) / 100.0
-    except:
+        value = float(gradient_str)
+        # Check if the value is NaN
+        if value != value:  # NaN check (NaN != NaN is True)
+            print("Detected NaN value, returning 0.0")
+            return 0.0
+        result = value / 100.0
+        print(f"Standard parsing result: {result}")
+        return result
+    except (ValueError, TypeError) as e:
+        print(f"Parsing failed with error: {e}, returning 0.0")
         return 0.0  # Default to 0% if parsing fails
 
 def generate_drawing(data, filename):
@@ -193,20 +215,20 @@ def generate_drawing(data, filename):
             y_bottom_ref = -x_ref * gradient - box_h_m/2 - 0.05
         
         y_top_ref = y_bottom_ref + baffle_h_m + 0.1
-        x_dim = x_ref + 0.15  # Very close to baffle
+        x_dim = x_ref + 0.3  # Moved further right to avoid overlap
         
         # Main dimension arrow with thicker line
         ax_long.annotate('', xy=(x_dim, y_bottom_ref), xytext=(x_dim, y_top_ref),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
         
-        ax_long.text(x_dim+0.15, (y_bottom_ref + y_top_ref)/2, f"Baffle\nheight\n{int(round(baffle_h_m*1000))}mm", 
+        ax_long.text(x_dim+0.2, (y_bottom_ref + y_top_ref)/2, f"Baffle\nheight\n{int(round(baffle_h_m*1000))}mm", 
                     ha='left', va='center', fontsize=9, fontweight='bold', color='#16416f')
 
     # Clean up axes
     y_min = -length_m * gradient - culvert_height/2 - 0.4
     y_max = culvert_height/2 + 0.5
-    # Clean up axes - remove boxes around views
-    ax_long.set_xlim(-1.0, length_m + 1.0)  # Added more margin
+    # Clean up axes - remove boxes around views, extra margin for text
+    ax_long.set_xlim(-1.0, length_m + 1.5)  # Extra margin on right for dimension text
     ax_long.set_ylim(y_min - 0.3, y_max + 0.3)  # Added top and bottom margin
     ax_long.axis('off')  # Remove all borders and ticks
 
@@ -228,11 +250,9 @@ def generate_drawing(data, filename):
         width = box_w_m
         height = box_h_m
         
-        # Simple box outline
+        # Simple box outline - only top and bottom lines (no end walls in plan view)
         ax_plan.plot([0, length_m], [height/2, height/2], color='#16416f', linewidth=2)
         ax_plan.plot([0, length_m], [-height/2, -height/2], color='#16416f', linewidth=2)
-        ax_plan.plot([0, 0], [-height/2, height/2], color='#16416f', linewidth=2)
-        ax_plan.plot([length_m, length_m], [-height/2, height/2], color='#16416f', linewidth=2)
         
         culvert_width = box_h_m
 
