@@ -66,25 +66,38 @@ def generate_drawing(data, filename):
     # Parse Installation field to determine placement and baffle behavior
     installation = str(data.get("installation", "")).lower()
     
+    # Debug: print the installation value to see what we're getting
+    print(f"Installation value received: '{installation}'")
+    
     # Box culvert sizes (for flat/box culverts, use diameter as both width and height)
     box_w_m = diameter_m  # Width same as diameter
     box_h_m = diameter_m  # Height same as diameter
     
-    if "offset" in installation:
+    # Check for offset keywords in the full description text
+    if any(keyword in installation for keyword in ["offset", "alternating", "meander", "20% shorter"]):
         placement = "offset"
+        print("Setting placement to OFFSET")
         if shape == "round":
             # Round culverts: always 50mm offset
             lateral_offset_m = 0.05  # 50mm
         else:
             # Box culverts: alternating pattern, baffle length already calculated by Zapier
             lateral_offset_m = 0.0  # Will handle alternating in the drawing loop
-    else:
-        # Centered installation
-        placement = "centered"  
+    elif any(keyword in installation for keyword in ["centered", "centred", "full width", "full-width"]) or installation == "":
+        # Centered installation (including empty/default)
+        placement = "centered"
+        print("Setting placement to CENTERED")
         lateral_offset_m = 0.0
         # For box culverts, centered baffles should span full width
         if shape == "box":
             baffle_len_m = box_h_m  # Full width for centered box culvert baffles
+    else:
+        # Default to centered if we can't determine
+        placement = "centered"
+        print(f"Defaulting to CENTERED - unknown installation value: '{installation}'")
+        lateral_offset_m = 0.0
+        if shape == "box":
+            baffle_len_m = box_h_m
 
     # Safety clamps
     length_m      = max(0.5, length_m)
@@ -236,16 +249,16 @@ def generate_drawing(data, filename):
                 ha='center', va='center', fontsize=11, fontweight='bold', color='#16416f',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#89ccea"))
 
-    # Draw baffles in plan view with improved alternating logic for box culverts
+    # Draw baffles in plan view with corrected alternating logic for box culverts
     for i, x in enumerate(x_positions):
         if placement == "offset" and shape == "box":
-            # Box culvert alternating pattern - fixed positioning
-            if i % 2 == 0:  # Even baffles: positioned toward top
-                y_start = -culvert_width/2
-                y_end = y_start + baffle_len_m
-            else:  # Odd baffles: positioned toward bottom
-                y_start = culvert_width/2 - baffle_len_m
-                y_end = culvert_width/2
+            # Box culvert alternating pattern - left/right meander (20% shorter than width)
+            if i % 2 == 0:  # Even baffles: positioned toward left side
+                y_start = -culvert_width/2  # Start from left wall
+                y_end = y_start + baffle_len_m  # Extend toward center
+            else:  # Odd baffles: positioned toward right side
+                y_end = culvert_width/2  # End at right wall
+                y_start = y_end - baffle_len_m  # Start from center toward right
         elif placement == "centered":
             # Centered baffles - span full width for box, use baffle_len_m for round
             if shape == "box":
@@ -264,11 +277,11 @@ def generate_drawing(data, filename):
         ax_plan.plot([x, x], [y_start, y_end], color='#16416f', linewidth=3)
 
     # Baffle length dimension - positioned closer to avoid overlap
-    if x_positions and placement != "centered" or shape == "round":
+    if x_positions and (placement != "centered" or shape == "round"):
         # Only show baffle length dimension if not full-width centered
         x_ref = x_positions[0]
         if placement == "offset" and shape == "box":
-            # For alternating baffles, show dimension on first (top) baffle
+            # For alternating baffles, show dimension on first (left side) baffle
             y_center = -culvert_width/2 + baffle_len_m/2
             y1_ref = -culvert_width/2
             y2_ref = -culvert_width/2 + baffle_len_m
