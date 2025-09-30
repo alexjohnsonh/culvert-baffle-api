@@ -60,19 +60,24 @@ def generate_drawing(data, filename):
     is_small_culvert = float(diameter_str) <= 599
     if is_small_culvert:
         print(f"Culvert diameter {diameter_str}mm is too small - drawing without baffles and adding warning overlay")
+        # Set default values for baffle measurements since they'll be N/A
+        baffle_h_m = 0.15  # Default 150mm just for drawing purposes
+        baffle_len_m = 0.6  # Default 600mm
+        spacing_m = 0.8  # Default 800mm
+    else:
+        # Normal processing for culverts over 599mm
+        baffle_h_str = str(data.get("baffleHeight", "150 mm")).replace(" mm", "").replace("N/A - Culvert too small", "150")
+        baffle_h_m = mm_to_m(float(baffle_h_str))
+        
+        baffle_len_str = str(data.get("baffleLength", "600 mm")).replace(" mm", "").replace("N/A - Culvert too small", "600")
+        baffle_len_m = mm_to_m(float(baffle_len_str))
+        
+        spacing_str = str(data.get("spacing", "800 mm")).replace(" mm", "").replace("N/A - Culvert too small", "800")
+        spacing_m = mm_to_m(float(spacing_str))
     
     # CONTINUE WITH NORMAL PROCESSING
     gradient_str = str(data.get("gradient", "0%"))
     gradient = parse_gradient(gradient_str)
-    
-    baffle_h_str = str(data.get("baffleHeight", "150 mm")).replace(" mm", "")
-    baffle_h_m = mm_to_m(float(baffle_h_str))
-    
-    baffle_len_str = str(data.get("baffleLength", "600 mm")).replace(" mm", "")
-    baffle_len_m = mm_to_m(float(baffle_len_str))
-    
-    spacing_str = str(data.get("spacing", "800 mm")).replace(" mm", "")
-    spacing_m = mm_to_m(float(spacing_str))
     
     shape_str = str(data.get("shape", "round")).lower()
     if shape_str == "flat":
@@ -297,7 +302,7 @@ def generate_drawing(data, filename):
     if is_small_culvert:
         # Add semi-transparent warning banner across entire figure
         fig.text(0.5, 0.5, 
-                'CULVERT TOO SMALL FOR BAFFLES \n\n'
+                '⚠️ CULVERT TOO SMALL FOR BAFFLES ⚠️\n\n'
                 f'Diameter: {diameter_str}mm\n\n'
                 'Culverts 599mm or under require alternative solutions.\n'
                 'Please contact us directly for fish passage options.',
