@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, send_file
 import matplotlib
-matplotlib.use("Agg")  # no GUI
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import tempfile
@@ -20,18 +20,14 @@ def parse_gradient(gradient_str):
     original_str = str(gradient_str)
     gradient_str = str(gradient_str).lower()
     
-    # Debug logging
     print(f"Gradient parsing - Original: '{original_str}', Lowercase: '{gradient_str}'")
     
-    # Handle NaN case
     if "nan" in gradient_str or gradient_str == "nan%":
         print("Detected NaN gradient, returning 0.0")
         return 0.0
     
-    # Handle "greater than X%" format - extract the number and use it
     if "greater than" in gradient_str:
         print("Detected 'greater than' format")
-        # Extract number after "greater than"
         match = re.search(r'greater than\s*(\d+(?:\.\d+)?)', gradient_str)
         if match:
             value = float(match.group(1)) / 100.0
@@ -40,12 +36,10 @@ def parse_gradient(gradient_str):
         else:
             print("Could not extract number from 'greater than' format")
     
-    # Handle standard "X%" format
     gradient_str = gradient_str.replace("%", "")
     try:
         value = float(gradient_str)
-        # Check if the value is NaN
-        if value != value:  # NaN check (NaN != NaN is True)
+        if value != value:
             print("Detected NaN value, returning 0.0")
             return 0.0
         result = value / 100.0
@@ -53,22 +47,41 @@ def parse_gradient(gradient_str):
         return result
     except (ValueError, TypeError) as e:
         print(f"Parsing failed with error: {e}, returning 0.0")
-        return 0.0  # Default to 0% if parsing fails
+        return 0.0
 
 def generate_drawing(data, filename):
     # ---- inputs & defaults ----
-    # Handle exact Zapier output field names
     length_m = float(str(data.get("culvertLength", data.get("Culvert Length", data.get("length", 10)))).replace(" m", ""))
     
-    # Handle diameter with units
     diameter_str = str(data.get("diameter", "1200 mm")).replace(" mm", "")
     diameter_m = mm_to_m(float(diameter_str))
     
-    # Handle gradient with improved parsing
+    # CHECK FOR SMALL CULVERTS - Skip drawing if 599mm or under
+    if float(diameter_str) <= 599:
+        print(f"Culvert diameter {diameter_str}mm is too small - skipping drawing generation")
+        # Create a simple message image instead of a full schematic
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.text(0.5, 0.5, 
+                "CULVERT TOO SMALL FOR BAFFLE SCHEMATIC\n\n"
+                f"Diameter: {diameter_str}mm\n\n"
+                "Culverts 599mm or under require alternative solutions.\n"
+                "Please contact us directly for fish passage options\n"
+                "tailored to your small culvert.",
+                ha='center', va='center', fontsize=14, fontweight='bold',
+                color='#16416f', wrap=True,
+                bbox=dict(boxstyle="round,pad=1", facecolor="#f0f0f0", edgecolor="#16416f", linewidth=3))
+        ax.axis('off')
+        fig.patch.set_edgecolor('#16416f')
+        fig.patch.set_linewidth(3)
+        plt.tight_layout()
+        plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')
+        plt.close(fig)
+        return
+    
+    # CONTINUE WITH NORMAL PROCESSING FOR CULVERTS OVER 599MM
     gradient_str = str(data.get("gradient", "0%"))
     gradient = parse_gradient(gradient_str)
     
-    # Handle baffle measurements with units
     baffle_h_str = str(data.get("baffleHeight", "150 mm")).replace(" mm", "")
     baffle_h_m = mm_to_m(float(baffle_h_str))
     
@@ -78,61 +91,48 @@ def generate_drawing(data, filename):
     spacing_str = str(data.get("spacing", "800 mm")).replace(" mm", "")
     spacing_m = mm_to_m(float(spacing_str))
     
-    # Handle shape from Zapier (round/flat)
     shape_str = str(data.get("shape", "round")).lower()
     if shape_str == "flat":
         shape = "box"
     else:
-        shape = "round"  # default to round for "round" or any other value
+        shape = "round"
     
-    # Parse Installation field to determine placement and baffle behavior
     installation = str(data.get("installation", "")).lower()
     
-    # Debug: print the installation value to see what we're getting
     print(f"Installation value received: '{installation}'")
     
-    # Box culvert sizes (for flat/box culverts, use diameter as both width and height)
-    box_w_m = diameter_m  # Width same as diameter
-    box_h_m = diameter_m  # Height same as diameter
+    box_w_m = diameter_m
+    box_h_m = diameter_m
     
-    # Check for offset keywords in the full description text
     if any(keyword in installation for keyword in ["offset", "alternating", "meander", "20% shorter"]):
         placement = "offset"
         print("Setting placement to OFFSET")
         if shape == "round":
-            # Round culverts: always 50mm offset
-            lateral_offset_m = 0.05  # 50mm
+            lateral_offset_m = 0.05
         else:
-            # Box culverts: alternating pattern, baffle length already calculated by Zapier
-            lateral_offset_m = 0.0  # Will handle alternating in the drawing loop
+            lateral_offset_m = 0.0
     elif any(keyword in installation for keyword in ["centered", "centred", "full width", "full-width"]) or installation == "":
-        # Centered installation (including empty/default)
         placement = "centered"
         print("Setting placement to CENTERED")
         lateral_offset_m = 0.0
-        # For box culverts, centered baffles should span full width
         if shape == "box":
-            baffle_len_m = box_h_m  # Full width for centered box culvert baffles
+            baffle_len_m = box_h_m
     else:
-        # Default to centered if we can't determine
         placement = "centered"
         print(f"Defaulting to CENTERED - unknown installation value: '{installation}'")
         lateral_offset_m = 0.0
         if shape == "box":
             baffle_len_m = box_h_m
 
-    # Safety clamps
-    length_m      = max(0.5, length_m)
-    spacing_m     = max(0.05, spacing_m)
-    baffle_h_m    = max(0.0, baffle_h_m)
-    baffle_len_m  = max(0.0, baffle_len_m)
+    length_m = max(0.5, length_m)
+    spacing_m = max(0.05, spacing_m)
+    baffle_h_m = max(0.0, baffle_h_m)
+    baffle_len_m = max(0.0, baffle_len_m)
 
-    # Compute baffle x-positions along length; start at spacing (not at x=0)
     n_baffles = int(length_m // spacing_m)
     x_positions = [i * spacing_m for i in range(1, n_baffles + 1) if i * spacing_m <= length_m]
 
-    # ---- figure & axes ----
-    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))  # Smaller figure
+    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))
     
     if shape == "round":
         title = f"Culvert {length_m:g}m | Ø{int(round(diameter_m*1000))}mm | Gradient {round(gradient*100,1)}%"
@@ -141,39 +141,30 @@ def generate_drawing(data, filename):
     
     fig.suptitle(title, fontsize=16, fontweight='bold', y=0.89, color='#16416f')
 
-    # Add border around the entire figure - but NOT around individual subplots
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
 
-    # =========================
-    # Longitudinal view (side profile with gradient)
-    # =========================
+    # Longitudinal view
     ax_long.set_title("LONGITUDINAL VIEW", fontweight='bold', fontsize=12, pad=0, color='#16416f', y=0.80)
     
     if shape == "round":
         radius = diameter_m / 2.0
-        # Draw culvert outline with gradient - just the outline, no fill
         x_curve = np.linspace(0, length_m, 100)
         y_top = -x_curve * gradient + radius
         y_bottom = -x_curve * gradient - radius
         
-        # Draw only the top and bottom curves of the pipe
         ax_long.plot(x_curve, y_top, color='#16416f', linewidth=2)
         ax_long.plot(x_curve, y_bottom, color='#16416f', linewidth=2)
         
-        # Baffles at the BOTTOM of the culvert for fish passage
         for x in x_positions:
             y_bottom_at_x = -x * gradient - radius
             baffle_top = y_bottom_at_x + baffle_h_m
-            
-            # Draw baffle as thin vertical line
             ax_long.plot([x, x], [y_bottom_at_x, baffle_top], color='#16416f', linewidth=3)
             
         culvert_height = diameter_m
         
-    else:  # box culvert
+    else:
         height = box_h_m
-        # Draw culvert outline with gradient
         x_line = np.array([0, length_m])
         y_top = -x_line * gradient + height/2
         y_bottom = -x_line * gradient - height/2
@@ -181,32 +172,25 @@ def generate_drawing(data, filename):
         ax_long.plot(x_line, y_top, color='#16416f', linewidth=2)
         ax_long.plot(x_line, y_bottom, color='#16416f', linewidth=2)
         
-        # Baffles at the BOTTOM of the culvert
         for x in x_positions:
             y_bottom_at_x = -x * gradient - height/2
             baffle_top = y_bottom_at_x + baffle_h_m
-            
-            # Draw baffle as thin vertical line
             ax_long.plot([x, x], [y_bottom_at_x, baffle_top], color='#16416f', linewidth=3)
             
         culvert_height = box_h_m
 
-    # Simple spacing dimension (between first two baffles) - positioned closer to baffles
     if len(x_positions) >= 2:
         x1, x2 = x_positions[0], x_positions[1]
-        # Position the dimension line just above the baffles inside the culvert
         if shape == "round":
-            y_dim = -((x1 + x2)/2) * gradient + diameter_m/4  # Inside the pipe, above center
+            y_dim = -((x1 + x2)/2) * gradient + diameter_m/4
         else:
-            y_dim = -((x1 + x2)/2) * gradient + box_h_m/4     # Inside the box, above center
+            y_dim = -((x1 + x2)/2) * gradient + box_h_m/4
         
-        # Simple dimension line with thicker arrows
         ax_long.annotate('', xy=(x1, y_dim), xytext=(x2, y_dim),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
         ax_long.text((x1+x2)/2, y_dim+0.08, f"Spacing = {int(round(spacing_m*1000))}mm", 
                     ha='center', va='bottom', fontsize=9, fontweight='bold', color='#16416f')
 
-    # Baffle height dimension - proper extended arrows with extension lines
     if x_positions:
         x_ref = x_positions[-1]
         if shape == "round":
@@ -215,48 +199,35 @@ def generate_drawing(data, filename):
             y_bottom_ref = -x_ref * gradient - box_h_m/2 - 0.05
         
         y_top_ref = y_bottom_ref + baffle_h_m + 0.1
-        x_dim = x_ref + 0.3  # Moved further right to avoid overlap
+        x_dim = x_ref + 0.3
         
-        # Main dimension arrow with thicker line
         ax_long.annotate('', xy=(x_dim, y_bottom_ref), xytext=(x_dim, y_top_ref),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
         
         ax_long.text(x_dim+0.2, (y_bottom_ref + y_top_ref)/2, f"Baffle\nheight\n{int(round(baffle_h_m*1000))}mm", 
                     ha='left', va='center', fontsize=9, fontweight='bold', color='#16416f')
 
-    # Clean up axes
     y_min = -length_m * gradient - culvert_height/2 - 0.4
     y_max = culvert_height/2 + 0.5
-    # Clean up axes - remove boxes around views, extra margin for text
-    ax_long.set_xlim(-1.0, length_m + 1.5)  # Extra margin on right for dimension text
-    ax_long.set_ylim(y_min - 0.3, y_max + 0.3)  # Added top and bottom margin
-    ax_long.axis('off')  # Remove all borders and ticks
+    ax_long.set_xlim(-1.0, length_m + 1.5)
+    ax_long.set_ylim(y_min - 0.3, y_max + 0.3)
+    ax_long.axis('off')
 
-    # ==============
-    # Plan view (top-down) - cleaner version
-    # ==============
+    # Plan view
     ax_plan.set_title("PLAN VIEW", fontweight='bold', fontsize=12, pad=0, color='#16416f', y=0.80)
     
     if shape == "round":
         radius = diameter_m / 2.0
-        
-        # Simple culvert outline - just two parallel lines
         ax_plan.plot([0, length_m], [radius, radius], color='#16416f', linewidth=2)
         ax_plan.plot([0, length_m], [-radius, -radius], color='#16416f', linewidth=2)
-        
         culvert_width = diameter_m
-        
-    else:  # box culvert
+    else:
         width = box_w_m
         height = box_h_m
-        
-        # Simple box outline - only top and bottom lines (no end walls in plan view)
         ax_plan.plot([0, length_m], [height/2, height/2], color='#16416f', linewidth=2)
         ax_plan.plot([0, length_m], [-height/2, -height/2], color='#16416f', linewidth=2)
-        
         culvert_width = box_h_m
 
-    # Placement text
     if placement == "offset":
         if shape == "round":
             placement_text = "Offset baffles (50mm)"
@@ -269,39 +240,32 @@ def generate_drawing(data, filename):
                 ha='center', va='center', fontsize=11, fontweight='bold', color='#16416f',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#89ccea"))
 
-    # Draw baffles in plan view with corrected alternating logic for box culverts
     for i, x in enumerate(x_positions):
         if placement == "offset" and shape == "box":
-            # Box culvert alternating pattern - left/right meander (20% shorter than width)
-            if i % 2 == 0:  # Even baffles: positioned toward left side
-                y_start = -culvert_width/2  # Start from left wall
-                y_end = y_start + baffle_len_m  # Extend toward center
-            else:  # Odd baffles: positioned toward right side
-                y_end = culvert_width/2  # End at right wall
-                y_start = y_end - baffle_len_m  # Start from center toward right
+            if i % 2 == 0:
+                y_start = -culvert_width/2
+                y_end = y_start + baffle_len_m
+            else:
+                y_end = culvert_width/2
+                y_start = y_end - baffle_len_m
         elif placement == "centered":
-            # Centered baffles - span full width for box, use baffle_len_m for round
             if shape == "box":
                 y_start = -culvert_width/2
                 y_end = culvert_width/2
-            else:  # round
+            else:
                 y_center = lateral_offset_m
                 y_start = y_center - baffle_len_m/2
                 y_end = y_center + baffle_len_m/2
         else:
-            # Round culvert offset (50mm)
             y_center = lateral_offset_m
             y_start = y_center - baffle_len_m/2
             y_end = y_center + baffle_len_m/2
         
         ax_plan.plot([x, x], [y_start, y_end], color='#16416f', linewidth=3)
 
-    # Baffle length dimension - positioned closer to avoid overlap
     if x_positions and (placement != "centered" or shape == "round"):
-        # Only show baffle length dimension if not full-width centered
         x_ref = x_positions[0]
         if placement == "offset" and shape == "box":
-            # For alternating baffles, show dimension on first (left side) baffle
             y_center = -culvert_width/2 + baffle_len_m/2
             y1_ref = -culvert_width/2
             y2_ref = -culvert_width/2 + baffle_len_m
@@ -310,16 +274,13 @@ def generate_drawing(data, filename):
             y1_ref = y_center - baffle_len_m/2
             y2_ref = y_center + baffle_len_m/2
         
-        # Position dimension line closer to the baffle to avoid overlap with next baffle
-        x_dim = x_ref + 0.15  # Much closer to avoid overlap
+        x_dim = x_ref + 0.15
         ax_plan.annotate('', xy=(x_dim, y1_ref), xytext=(x_dim, y2_ref),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
         ax_plan.text(x_dim+0.05, y_center, f"Baffle\nlength\n{int(round(baffle_len_m*1000))}mm", 
                     ha='left', va='center', fontsize=9, fontweight='bold', color='#16416f')
 
-    # Diameter label on the left side with a dimension line
     if shape == "round":
-        # Left side diameter dimension
         x_diam = -0.3
         y_top_diam = radius
         y_bottom_diam = -radius
@@ -329,26 +290,23 @@ def generate_drawing(data, filename):
         ax_plan.text(x_diam-0.1, 0, f"Ø{int(round(diameter_m*1000))}mm",
                     ha='right', va='center', fontsize=11, fontweight='bold', rotation=90, color='#16416f')
 
-    # Length dimension at bottom
     y_length_dim = -culvert_width/2 - 0.3
     ax_plan.annotate('', xy=(0, y_length_dim), xytext=(length_m, y_length_dim),
                     arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
     ax_plan.text(length_m/2, y_length_dim-0.1, f"{length_m:g}m", 
                 ha='center', va='top', fontsize=11, fontweight='bold', color='#16416f')
 
-    # Clean up axes - remove boxes around views  
-    ax_plan.set_xlim(-1.0, length_m + 1.0)  # Added more margin
-    ax_plan.set_ylim(-culvert_width/2 - 0.8, culvert_width/2 + 1.2)  # Added margin, extra at top for text
-    ax_plan.axis('off')  # Remove all borders and ticks
+    ax_plan.set_xlim(-1.0, length_m + 1.0)
+    ax_plan.set_ylim(-culvert_width/2 - 0.8, culvert_width/2 + 1.2)
+    ax_plan.axis('off')
 
     plt.tight_layout()
     plt.subplots_adjust(top=0.90)
     
-    # Add overall border to the figure
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
     
-    plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')  # Reduced DPI
+    plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')
     plt.close(fig)
 
 
@@ -364,27 +322,22 @@ def download_file(filename):
 @app.route("/flexibaffle_drawings", methods=["POST"])
 def flexibaffle_drawings():
     try:
-        # Debug: print request details
         print(f"Content-Type: {request.content_type}")
         print(f"Request data: {request.get_data()}")
         
-        # Try multiple ways to get JSON data
         payload = None
         
-        # Method 1: Standard JSON parsing
         try:
             payload = request.get_json()
         except:
             pass
             
-        # Method 2: Force JSON parsing
         if not payload:
             try:
                 payload = request.get_json(force=True)
             except:
                 pass
         
-        # Method 3: Manual JSON parsing
         if not payload:
             try:
                 import json
@@ -399,18 +352,14 @@ def flexibaffle_drawings():
             
         print(f"Successfully parsed payload: {payload}")
 
-        # Generate unique filename for this request
         file_id = str(uuid.uuid4())
         permanent_filename = f"{file_id}.png"
         
-        # Generate the drawing
         generate_drawing(payload, permanent_filename)
         
-        # Read the file for base64 encoding (backup method)
         with open(permanent_filename, 'rb') as img_file:
             img_b64 = base64.b64encode(img_file.read()).decode("utf-8")
 
-        # Return both download URL and base64 (for flexibility)
         download_url = f"https://culvert-baffle-api.onrender.com/download/{permanent_filename}"
         
         print("Image generated successfully")
