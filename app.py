@@ -56,29 +56,12 @@ def generate_drawing(data, filename):
     diameter_str = str(data.get("diameter", "1200 mm")).replace(" mm", "")
     diameter_m = mm_to_m(float(diameter_str))
     
-    # CHECK FOR SMALL CULVERTS - Skip drawing if 599mm or under
-    if float(diameter_str) <= 599:
-        print(f"Culvert diameter {diameter_str}mm is too small - skipping drawing generation")
-        # Create a simple message image instead of a full schematic
-        fig, ax = plt.subplots(figsize=(10, 6))
-        ax.text(0.5, 0.5, 
-                "CULVERT TOO SMALL FOR BAFFLE SCHEMATIC\n\n"
-                f"Diameter: {diameter_str}mm\n\n"
-                "Culverts 599mm or under require alternative solutions.\n"
-                "Please contact us directly for fish passage options\n"
-                "tailored to your small culvert.",
-                ha='center', va='center', fontsize=14, fontweight='bold',
-                color='#16416f', wrap=True,
-                bbox=dict(boxstyle="round,pad=1", facecolor="#f0f0f0", edgecolor="#16416f", linewidth=3))
-        ax.axis('off')
-        fig.patch.set_edgecolor('#16416f')
-        fig.patch.set_linewidth(3)
-        plt.tight_layout()
-        plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')
-        plt.close(fig)
-        return
+    # CHECK FOR SMALL CULVERTS - Flag but continue drawing (without baffles)
+    is_small_culvert = float(diameter_str) <= 599
+    if is_small_culvert:
+        print(f"Culvert diameter {diameter_str}mm is too small - drawing without baffles and adding warning overlay")
     
-    # CONTINUE WITH NORMAL PROCESSING FOR CULVERTS OVER 599MM
+    # CONTINUE WITH NORMAL PROCESSING
     gradient_str = str(data.get("gradient", "0%"))
     gradient = parse_gradient(gradient_str)
     
@@ -131,6 +114,10 @@ def generate_drawing(data, filename):
 
     n_baffles = int(length_m // spacing_m)
     x_positions = [i * spacing_m for i in range(1, n_baffles + 1) if i * spacing_m <= length_m]
+    
+    # If small culvert, clear baffle positions so no baffles are drawn
+    if is_small_culvert:
+        x_positions = []
 
     fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))
     
@@ -305,6 +292,20 @@ def generate_drawing(data, filename):
     
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
+    
+    # Add warning overlay for small culverts
+    if is_small_culvert:
+        # Add semi-transparent warning banner across entire figure
+        fig.text(0.5, 0.5, 
+                'CULVERT TOO SMALL FOR BAFFLES \n\n'
+                f'Diameter: {diameter_str}mm\n\n'
+                'Culverts 599mm or under require alternative solutions.\n'
+                'Please contact us directly for fish passage options.',
+                ha='center', va='center', fontsize=16, fontweight='bold',
+                color='#16416f', 
+                bbox=dict(boxstyle="round,pad=1.5", facecolor='white', 
+                         edgecolor='#16416f', linewidth=4, alpha=0.95),
+                transform=fig.transFigure, zorder=100)
     
     plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')
     plt.close(fig)
