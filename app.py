@@ -302,14 +302,14 @@ def generate_drawing(data, filename):
     if is_small_culvert:
         # Add semi-transparent warning banner across entire figure
         fig.text(0.5, 0.5, 
-                '⚠️ CULVERT TOO SMALL FOR BAFFLES ⚠️\n\n'
+                'CULVERT TOO SMALL FOR BAFFLES \n\n'
                 f'Diameter: {diameter_str}mm\n\n'
                 'Culverts 599mm or under require alternative solutions.\n'
                 'Please contact us directly for fish passage options.',
                 ha='center', va='center', fontsize=16, fontweight='bold',
                 color='#16416f', 
-                bbox=dict(boxstyle="round,pad=1.5", facecolor='white', 
-                         edgecolor='#16416f', linewidth=4, alpha=0.95),
+                bbox=dict(boxstyle="round,pad=1.5", facecolor='#89ccea', 
+                         edgecolor='#16416f', linewidth=4, alpha=0.9),
                 transform=fig.transFigure, zorder=100)
     
     plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')
