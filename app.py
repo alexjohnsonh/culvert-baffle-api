@@ -12,7 +12,10 @@ import re
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "https://ats-environmental.com"}})
+CORS(app, resources={r"/*": {"origins": [
+    "https://ats-environmental.com",
+    "https://www.ats-environmental.com"
+]}})
 
 def mm_to_m(v): 
     return float(v) / 1000.0
