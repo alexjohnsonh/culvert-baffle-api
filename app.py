@@ -54,11 +54,40 @@ def parse_gradient(gradient_str):
         print(f"Parsing failed with error: {e}, returning 0.0")
         return 0.0
 
+# NEW FUNCTION: Format dimensions based on units
+def format_dimension(value_mm, units, decimal_places=1):
+    """
+    Convert mm to appropriate display format
+    value_mm: value in millimeters
+    units: 'metric' or 'imperial'
+    decimal_places: decimal places for imperial (default 1)
+    """
+    if units == "imperial":
+        inches = value_mm / 25.4
+        return f'{inches:.{decimal_places}f}"'
+    return f'{int(round(value_mm))}mm'
+
+# NEW FUNCTION: Format length (meters to feet)
+def format_length(value_m, units, decimal_places=1):
+    """
+    Convert meters to appropriate display format
+    value_m: value in meters
+    units: 'metric' or 'imperial'
+    """
+    if units == "imperial":
+        feet = value_m * 3.281
+        return f"{feet:.{decimal_places}f}'"
+    return f"{value_m:g}m"
+
 def generate_drawing(data, filename):
-    # ---- inputs & defaults ----
-    length_m = float(str(data.get("culvertLength", data.get("Culvert Length", data.get("length", 10)))).replace(" m", ""))
+    # ---- Get units preference (default to metric) ----
+    units = data.get("units", "metric").lower()
+    print(f"Drawing units: {units}")
     
-    diameter_str = str(data.get("diameter", "1200 mm")).replace(" mm", "")
+    # ---- inputs & defaults ----
+    length_m = float(str(data.get("culvertLength", data.get("Culvert Length", data.get("length", 10)))).replace(" m", "").replace("'", "").strip())
+    
+    diameter_str = str(data.get("diameter", "1200 mm")).replace(" mm", "").replace('"', "").strip()
     diameter_m = mm_to_m(float(diameter_str))
     
     # CHECK FOR SMALL CULVERTS - Flag but continue drawing (without baffles)
@@ -71,13 +100,13 @@ def generate_drawing(data, filename):
         spacing_m = 0.8  # Default 800mm
     else:
         # Normal processing for culverts over 599mm
-        baffle_h_str = str(data.get("baffleHeight", "150 mm")).replace(" mm", "").replace("N/A - Culvert too small", "150")
+        baffle_h_str = str(data.get("baffleHeight", "150 mm")).replace(" mm", "").replace('"', "").replace("N/A - Culvert too small", "150").strip()
         baffle_h_m = mm_to_m(float(baffle_h_str))
         
-        baffle_len_str = str(data.get("baffleLength", "600 mm")).replace(" mm", "").replace("N/A - Culvert too small", "600")
+        baffle_len_str = str(data.get("baffleLength", "600 mm")).replace(" mm", "").replace('"', "").replace("N/A - Culvert too small", "600").strip()
         baffle_len_m = mm_to_m(float(baffle_len_str))
         
-        spacing_str = str(data.get("spacing", "800 mm")).replace(" mm", "").replace("N/A - Culvert too small", "800")
+        spacing_str = str(data.get("spacing", "800 mm")).replace(" mm", "").replace('"', "").replace("N/A - Culvert too small", "800").strip()
         spacing_m = mm_to_m(float(spacing_str))
     
     # CONTINUE WITH NORMAL PROCESSING
@@ -131,10 +160,11 @@ def generate_drawing(data, filename):
 
     fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))
     
+    # UPDATED TITLE with unit-aware formatting
     if shape == "round":
-        title = f"Culvert {length_m:g}m | Ø{int(round(diameter_m*1000))}mm | Gradient {round(gradient*100,1)}%"
+        title = f"Culvert {format_length(length_m, units)} | Ø{format_dimension(diameter_m*1000, units, 1)} | Gradient {round(gradient*100,1)}%"
     else:
-        title = f"Culvert {length_m:g}m | {int(round(box_w_m*1000))}×{int(round(box_h_m*1000))}mm | Gradient {round(gradient*100,1)}%"
+        title = f"Culvert {format_length(length_m, units)} | {format_dimension(box_w_m*1000, units, 1)}×{format_dimension(box_h_m*1000, units, 1)} | Gradient {round(gradient*100,1)}%"
     
     fig.suptitle(title, fontsize=16, fontweight='bold', y=0.89, color='#16416f')
 
@@ -176,6 +206,7 @@ def generate_drawing(data, filename):
             
         culvert_height = box_h_m
 
+    # UPDATED SPACING DIMENSION with unit-aware formatting
     if len(x_positions) >= 2:
         x1, x2 = x_positions[0], x_positions[1]
         if shape == "round":
@@ -185,9 +216,10 @@ def generate_drawing(data, filename):
         
         ax_long.annotate('', xy=(x1, y_dim), xytext=(x2, y_dim),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
-        ax_long.text((x1+x2)/2, y_dim+0.08, f"Spacing = {int(round(spacing_m*1000))}mm", 
+        ax_long.text((x1+x2)/2, y_dim+0.08, f"Spacing = {format_dimension(spacing_m*1000, units)}", 
                     ha='center', va='bottom', fontsize=9, fontweight='bold', color='#16416f')
 
+    # UPDATED BAFFLE HEIGHT DIMENSION with unit-aware formatting
     if x_positions:
         x_ref = x_positions[-1]
         if shape == "round":
@@ -201,7 +233,7 @@ def generate_drawing(data, filename):
         ax_long.annotate('', xy=(x_dim, y_bottom_ref), xytext=(x_dim, y_top_ref),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
         
-        ax_long.text(x_dim+0.2, (y_bottom_ref + y_top_ref)/2, f"Baffle\nheight\n{int(round(baffle_h_m*1000))}mm", 
+        ax_long.text(x_dim+0.2, (y_bottom_ref + y_top_ref)/2, f"Baffle\nheight\n{format_dimension(baffle_h_m*1000, units)}", 
                     ha='left', va='center', fontsize=9, fontweight='bold', color='#16416f')
 
     y_min = -length_m * gradient - culvert_height/2 - 0.4
@@ -225,9 +257,13 @@ def generate_drawing(data, filename):
         ax_plan.plot([0, length_m], [-height/2, -height/2], color='#16416f', linewidth=2)
         culvert_width = box_h_m
 
+    # UPDATED PLACEMENT TEXT for imperial
     if placement == "offset":
         if shape == "round":
-            placement_text = "Offset baffles (50mm)"
+            if units == "imperial":
+                placement_text = "Offset baffles (2\")"
+            else:
+                placement_text = "Offset baffles (50mm)"
         else:
             placement_text = "Alternating offset baffles"
     else:
@@ -260,6 +296,7 @@ def generate_drawing(data, filename):
         
         ax_plan.plot([x, x], [y_start, y_end], color='#16416f', linewidth=3)
 
+    # UPDATED BAFFLE LENGTH DIMENSION with unit-aware formatting
     if x_positions and (placement != "centered" or shape == "round"):
         x_ref = x_positions[0]
         if placement == "offset" and shape == "box":
@@ -274,9 +311,10 @@ def generate_drawing(data, filename):
         x_dim = x_ref + 0.15
         ax_plan.annotate('', xy=(x_dim, y1_ref), xytext=(x_dim, y2_ref),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
-        ax_plan.text(x_dim+0.05, y_center, f"Baffle\nlength\n{int(round(baffle_len_m*1000))}mm", 
+        ax_plan.text(x_dim+0.05, y_center, f"Baffle\nlength\n{format_dimension(baffle_len_m*1000, units)}", 
                     ha='left', va='center', fontsize=9, fontweight='bold', color='#16416f')
 
+    # UPDATED DIAMETER DIMENSION with unit-aware formatting
     if shape == "round":
         x_diam = -0.3
         y_top_diam = radius
@@ -284,13 +322,14 @@ def generate_drawing(data, filename):
         
         ax_plan.annotate('', xy=(x_diam, y_bottom_diam), xytext=(x_diam, y_top_diam),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
-        ax_plan.text(x_diam-0.1, 0, f"Ø{int(round(diameter_m*1000))}mm",
+        ax_plan.text(x_diam-0.1, 0, f"Ø{format_dimension(diameter_m*1000, units, 1)}",
                     ha='right', va='center', fontsize=11, fontweight='bold', rotation=90, color='#16416f')
 
+    # UPDATED LENGTH DIMENSION with unit-aware formatting
     y_length_dim = -culvert_width/2 - 0.3
     ax_plan.annotate('', xy=(0, y_length_dim), xytext=(length_m, y_length_dim),
                     arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=1))
-    ax_plan.text(length_m/2, y_length_dim-0.1, f"{length_m:g}m", 
+    ax_plan.text(length_m/2, y_length_dim-0.1, format_length(length_m, units), 
                 ha='center', va='top', fontsize=11, fontweight='bold', color='#16416f')
 
     ax_plan.set_xlim(-1.0, length_m + 1.0)
@@ -303,13 +342,13 @@ def generate_drawing(data, filename):
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
     
-    # Add warning overlay for small culverts
+    # UPDATED WARNING for small culverts with unit-aware text
     if is_small_culvert:
-        # Add semi-transparent warning banner across entire figure
+        warning_diameter = format_dimension(float(diameter_str), units, 1)
         fig.text(0.5, 0.5, 
                 'CULVERT TOO SMALL FOR BAFFLES \n\n'
-                f'Diameter: {diameter_str}mm\n\n'
-                'Culverts 599mm or under require alternative solutions.\n'
+                f'Diameter: {warning_diameter}\n\n'
+                'Culverts 599mm (23.6") or under require alternative solutions.\n'
                 'Please contact us directly for fish passage options.',
                 ha='center', va='center', fontsize=16, fontweight='bold',
                 color='#16416f', 
