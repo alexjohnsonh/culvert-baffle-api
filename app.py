@@ -7,7 +7,7 @@ import tempfile
 import base64
 import uuid
 import os
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle, FancyBboxPatch
 import re
 from flask_cors import CORS
 
@@ -172,14 +172,8 @@ def generate_drawing(data, filename):
     if is_small_culvert:
         x_positions = []
 
-    # Create figure with extra space at bottom for dimensions table
-    fig = plt.figure(figsize=(14, 12))
-    
-    # Create subplots with space for dimensions at bottom
-    ax_long = plt.subplot2grid((3, 1), (0, 0))
-    ax_plan = plt.subplot2grid((3, 1), (1, 0))
-    ax_dims = plt.subplot2grid((3, 1), (2, 0))
-    ax_dims.axis('off')  # Hide axis for dimensions table
+    # Create figure with 2 subplots only
+    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))
     
     # TITLE
     if shape == "round":
@@ -192,7 +186,7 @@ def generate_drawing(data, filename):
     fig.patch.set_linewidth(3)
 
     # ===== LONGITUDINAL VIEW =====
-    ax_long.set_title("LONGITUDINAL VIEW", fontweight='bold', fontsize=12, pad=10, color='#16416f')
+    ax_long.set_title("LONGITUDINAL VIEW", fontweight='bold', fontsize=12, pad=15, color='#16416f')
     
     if shape == "round":
         radius = diameter_m / 2.0
@@ -226,7 +220,7 @@ def generate_drawing(data, filename):
             
         culvert_height = box_h_m
 
-    # SIMPLIFIED SPACING DIMENSION - just arrow with "A" label
+    # SPACING DIMENSION - arrow with "A" label
     if len(x_positions) >= 2:
         x1, x2 = x_positions[0], x_positions[1]
         if shape == "round":
@@ -239,7 +233,7 @@ def generate_drawing(data, filename):
         ax_long.text((x1+x2)/2, y_dim+0.08, "A", 
                     ha='center', va='bottom', fontsize=11, fontweight='bold', color='#16416f')
 
-    # SIMPLIFIED BAFFLE HEIGHT DIMENSION - arrow with "B" label
+    # BAFFLE HEIGHT DIMENSION - arrow with "B" label
     if x_positions:
         x_ref = x_positions[-1]
         if shape == "round":
@@ -263,7 +257,7 @@ def generate_drawing(data, filename):
     ax_long.axis('off')
 
     # ===== PLAN VIEW =====
-    ax_plan.set_title("PLAN VIEW", fontweight='bold', fontsize=12, pad=10, color='#16416f')
+    ax_plan.set_title("PLAN VIEW", fontweight='bold', fontsize=12, pad=15, color='#16416f')
     
     if shape == "round":
         radius = diameter_m / 2.0
@@ -316,7 +310,7 @@ def generate_drawing(data, filename):
         
         ax_plan.plot([x, x], [y_start, y_end], color='#16416f', linewidth=3)
 
-    # SIMPLIFIED BAFFLE LENGTH - arrow with "C" label
+    # BAFFLE LENGTH - arrow with "C" label
     if x_positions and (placement != "centered" or shape == "round"):
         x_ref = x_positions[0]
         if placement == "offset" and shape == "box":
@@ -334,7 +328,7 @@ def generate_drawing(data, filename):
         ax_plan.text(x_dim+0.1, y_center, "C", 
                     ha='left', va='center', fontsize=11, fontweight='bold', color='#16416f')
 
-    # SIMPLIFIED DIAMETER - arrow with "D" label
+    # DIAMETER - arrow with "D" label
     if shape == "round":
         x_diam = -0.3
         y_top_diam = radius
@@ -345,49 +339,37 @@ def generate_drawing(data, filename):
         ax_plan.text(x_diam-0.1, 0, "D",
                     ha='right', va='center', fontsize=11, fontweight='bold', rotation=90, color='#16416f')
 
-    # SIMPLIFIED LENGTH - arrow with "E" label
+    # LENGTH - arrow with "E" label
     y_length_dim = -culvert_width/2 - 0.3
     ax_plan.annotate('', xy=(0, y_length_dim), xytext=(length_m, y_length_dim),
                     arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=2))
     ax_plan.text(length_m/2, y_length_dim-0.1, "E", 
                 ha='center', va='top', fontsize=11, fontweight='bold', color='#16416f')
 
-    ax_plan.set_xlim(-1.0, length_m + 1.0)
+    # ===== LEGEND BOX ON RIGHT SIDE =====
+    legend_text = (
+        f"A - Spacing: {format_dimension(spacing_m*1000, units)}\n"
+        f"B - Baffle Height: {format_dimension(baffle_h_m*1000, units)}\n"
+        f"C - Baffle Length: {format_dimension(baffle_len_m*1000, units)}\n"
+        f"D - {'Diameter' if shape == 'round' else 'Width'}: {format_dimension(diameter_m*1000, units)}\n"
+        f"E - Culvert Length: {format_length(length_m, units)}"
+    )
+    
+    # Position legend on right side
+    ax_plan.text(length_m + 0.5, 0, legend_text,
+                ha='left', va='center', fontsize=10, 
+                color='#16416f',
+                bbox=dict(boxstyle="round,pad=0.5", 
+                         facecolor='white', 
+                         edgecolor='#16416f',
+                         linewidth=2))
+
+    ax_plan.set_xlim(-1.0, length_m + 2.5)  # Extra space for legend
     ax_plan.set_ylim(-culvert_width/2 - 0.8, culvert_width/2 + 1.2)
     ax_plan.axis('off')
 
-    # ===== DIMENSIONS TABLE AT BOTTOM =====
-    dim_table_data = [
-        ['Label', 'Dimension', 'Value'],
-        ['A', 'Spacing', format_dimension(spacing_m*1000, units)],
-        ['B', 'Baffle Height', format_dimension(baffle_h_m*1000, units)],
-        ['C', 'Baffle Length', format_dimension(baffle_len_m*1000, units)],
-        ['D', 'Diameter' if shape == "round" else 'Width', format_dimension(diameter_m*1000, units)],
-        ['E', 'Culvert Length', format_length(length_m, units)]
-    ]
-    
-    table = ax_dims.table(cellText=dim_table_data, cellLoc='center', loc='center',
-                         colWidths=[0.15, 0.4, 0.3])
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 2)
-    
-    # Style the header row
-    for i in range(3):
-        cell = table[(0, i)]
-        cell.set_facecolor('#16416f')
-        cell.set_text_props(weight='bold', color='white')
-    
-    # Style data rows
-    for i in range(1, 6):
-        for j in range(3):
-            cell = table[(i, j)]
-            if j == 0:  # Label column
-                cell.set_text_props(weight='bold', color='#16416f')
-            cell.set_facecolor('#f0f8ff' if i % 2 == 0 else 'white')
-
     plt.tight_layout()
-    plt.subplots_adjust(top=0.94, bottom=0.05)
+    plt.subplots_adjust(top=0.93, bottom=0.03)
     
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
