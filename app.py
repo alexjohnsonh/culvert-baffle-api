@@ -172,7 +172,7 @@ def generate_drawing(data, filename):
     if is_small_culvert:
         x_positions = []
 
-    # Create figure with 2 subplots only
+    # Create figure with 2 subplots
     fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))
     
     # TITLE
@@ -181,9 +181,28 @@ def generate_drawing(data, filename):
     else:
         title = f"Culvert {format_length(length_m, units)} | {format_dimension(box_w_m*1000, units, 0)}×{format_dimension(box_h_m*1000, units, 0)} | Gradient {round(gradient*100,1)}%"
     
-    fig.suptitle(title, fontsize=16, fontweight='bold', y=0.96, color='#16416f')
+    fig.suptitle(title, fontsize=16, fontweight='bold', y=0.98, color='#16416f')
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
+
+    # ===== LEGEND BOX AT TOP RIGHT =====
+    legend_text = (
+        f"A - Spacing: {format_dimension(spacing_m*1000, units)}\n"
+        f"B - Baffle Height: {format_dimension(baffle_h_m*1000, units)}\n"
+        f"C - Baffle Length: {format_dimension(baffle_len_m*1000, units)}\n"
+        f"D - {'Diameter' if shape == 'round' else 'Width'}: {format_dimension(diameter_m*1000, units)}\n"
+        f"E - Culvert Length: {format_length(length_m, units)}"
+    )
+    
+    # Add legend to figure at top-right
+    fig.text(0.85, 0.90, legend_text,
+            ha='left', va='top', fontsize=9, 
+            color='#16416f',
+            bbox=dict(boxstyle="round,pad=0.4", 
+                     facecolor='white', 
+                     edgecolor='#16416f',
+                     linewidth=2),
+            transform=fig.transFigure)
 
     # ===== LONGITUDINAL VIEW =====
     ax_long.set_title("LONGITUDINAL VIEW", fontweight='bold', fontsize=12, pad=15, color='#16416f')
@@ -346,30 +365,12 @@ def generate_drawing(data, filename):
     ax_plan.text(length_m/2, y_length_dim-0.1, "E", 
                 ha='center', va='top', fontsize=11, fontweight='bold', color='#16416f')
 
-    # ===== LEGEND BOX ON RIGHT SIDE =====
-    legend_text = (
-        f"A - Spacing: {format_dimension(spacing_m*1000, units)}\n"
-        f"B - Baffle Height: {format_dimension(baffle_h_m*1000, units)}\n"
-        f"C - Baffle Length: {format_dimension(baffle_len_m*1000, units)}\n"
-        f"D - {'Diameter' if shape == 'round' else 'Width'}: {format_dimension(diameter_m*1000, units)}\n"
-        f"E - Culvert Length: {format_length(length_m, units)}"
-    )
-    
-    # Position legend on right side
-    ax_plan.text(length_m + 0.5, 0, legend_text,
-                ha='left', va='center', fontsize=10, 
-                color='#16416f',
-                bbox=dict(boxstyle="round,pad=0.5", 
-                         facecolor='white', 
-                         edgecolor='#16416f',
-                         linewidth=2))
-
-    ax_plan.set_xlim(-1.0, length_m + 2.5)  # Extra space for legend
+    ax_plan.set_xlim(-1.0, length_m + 1.0)  # No extra space needed
     ax_plan.set_ylim(-culvert_width/2 - 0.8, culvert_width/2 + 1.2)
     ax_plan.axis('off')
 
     plt.tight_layout()
-    plt.subplots_adjust(top=0.93, bottom=0.03)
+    plt.subplots_adjust(top=0.90, bottom=0.03)  # More space at top
     
     fig.patch.set_edgecolor('#16416f')
     fig.patch.set_linewidth(3)
