@@ -195,7 +195,7 @@ def generate_drawing(data, filename):
     )
     
     # Add legend to figure at top-right
-    fig.text(0.85, 0.90, legend_text,
+    fig.text(0.82, 0.935, legend_text,
             ha='left', va='top', fontsize=9, 
             color='#16416f',
             bbox=dict(boxstyle="round,pad=0.4", 
