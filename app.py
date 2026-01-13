@@ -278,9 +278,9 @@ def generate_drawing(data, filename):
     if placement == "offset":
         if shape == "round":
             if units == "imperial":
-                placement_text = "Offset baffles (2\")"
+                placement_text = "Offset baffles (2\") from center"
             else:
-                placement_text = "Offset baffles (50mm)"
+                placement_text = "Offset baffles (50mm) from centre"
         else:
             placement_text = "Alternating offset baffles"
     else:
