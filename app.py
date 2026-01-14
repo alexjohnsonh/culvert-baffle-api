@@ -187,16 +187,17 @@ def generate_drawing(data, filename):
 
     # ===== LEGEND BOX AT TOP RIGHT =====
     legend_text = (
-        f"$\\mathbf{{A}}$ - Spacing: $\\mathbf{{{format_dimension(spacing_m*1000, units)}}}$\n"
-        f"$\\mathbf{{B}}$ - Baffle Height: $\\mathbf{{{format_dimension(baffle_h_m*1000, units)}}}$\n"
-        f"$\\mathbf{{C}}$ - Baffle Length: $\\mathbf{{{format_dimension(baffle_len_m*1000, units)}}}$\n"
-        f"$\\mathbf{{D}}$ - {'Diameter' if shape == 'round' else 'Width'}: $\\mathbf{{{format_dimension(diameter_m*1000, units)}}}$\n"
-        f"$\\mathbf{{E}}$ - Culvert Length: $\\mathbf{{{format_length(length_m, units)}}}$"
+        f"A - Spacing: {format_dimension(spacing_m*1000, units)}\n"
+        f"B - Baffle Height: {format_dimension(baffle_h_m*1000, units)}\n"
+        f"C - Baffle Length: {format_dimension(baffle_len_m*1000, units)}\n"
+        f"D - {'Diameter' if shape == 'round' else 'Width'}: {format_dimension(diameter_m*1000, units)}\n"
+        f"E - Culvert Length: {format_length(length_m, units)}"
     )
     
     # Add legend to figure at top-right
     fig.text(0.82, 0.935, legend_text,
             ha='left', va='top', fontsize=9, 
+            fontweight='bold',
             color='#16416f',
             bbox=dict(boxstyle="round,pad=0.4", 
                      facecolor='white', 
