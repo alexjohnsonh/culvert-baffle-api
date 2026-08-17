@@ -195,6 +195,46 @@ def generate_drawing(data, filename):
     if is_small_culvert:
         x_positions = []
 
+    # ---- Broken/truncated view for long culverts with many closely-spaced baffles ----
+    # Show a handful of baffles at each end, true to scale, with a conventional
+    # drafting "break" in between rather than cramming every baffle in (which
+    # stops looking to-scale once there are dozens of them).
+    SHOW_COUNT = 4
+    BREAK_THRESHOLD = 2 * SHOW_COUNT + 1
+    use_break = len(x_positions) > BREAK_THRESHOLD
+
+    if use_break:
+        near_positions = x_positions[:SHOW_COUNT]
+        far_positions = x_positions[-SHOW_COUNT:]
+        near_cutoff = near_positions[-1] + spacing_m * 0.5
+        far_start = far_positions[0] - spacing_m * 0.5
+        gap_w = max(1.0, diameter_m if shape == "round" else box_w_m)
+    else:
+        near_positions = x_positions
+        far_positions = []
+        near_cutoff = length_m
+        far_start = length_m
+        gap_w = 0.0
+
+    shown_positions = near_positions + far_positions
+    shown_set = set(shown_positions)
+
+    def to_plot_x(true_x):
+        if not use_break or true_x <= near_cutoff:
+            return true_x
+        return near_cutoff + gap_w + (true_x - far_start)
+
+    plot_length_end = to_plot_x(length_m)
+
+    def draw_break_symbol(ax, y_lo, y_hi, half_width=None):
+        span = y_hi - y_lo
+        hw = half_width if half_width is not None else max(0.06, span * 0.06)
+        pad = span * 0.12
+        x_c = near_cutoff + gap_w / 2.0
+        ys = [y_lo - pad, y_lo + span * 0.28, y_lo + span * 0.5, y_lo + span * 0.72, y_hi + pad]
+        xs = [x_c, x_c - hw, x_c + hw, x_c - hw, x_c]
+        ax.plot(xs, ys, color=NAVY, linewidth=2, solid_capstyle='round', zorder=3)
+
     # ---- Drafting-sheet layout: title band, longitudinal+plan on the left, ----
     # ---- parameters / cross-section / title block stacked on the right ----
     fig = plt.figure(figsize=(15.5, 10.8))
@@ -258,95 +298,108 @@ def generate_drawing(data, filename):
     ax_titleblock.text(0.53, 0.26, date.today().strftime("%d %b %Y").upper(), fontsize=9.5, color=NAVY, va='top', ha='left')
 
     # ===== LONGITUDINAL VIEW =====
-    # Title aligned with the "PARAMETERS" header row, not floating above the axes
+    # Title aligned with the "PARAMETERS" header row (then nudged down a bit further)
     params_box_bottom, params_box_height = 0.685, 0.20
     header_row_y = params_box_bottom + 0.87 * params_box_height
     long_centre_x = 0.035 + 0.55 / 2.0
-    fig.text(long_centre_x, header_row_y, "LONGITUDINAL VIEW", ha='center', va='top',
+    fig.text(long_centre_x, header_row_y - 0.04, "LONGITUDINAL VIEW", ha='center', va='top',
              fontweight='bold', fontsize=12, color=NAVY)
-    
+
+    # Baffles drawn perpendicular to the (sloped) invert, not plumb-vertical
+    perp_norm = (1.0 + gradient ** 2) ** 0.5
+    perp_dx = gradient / perp_norm
+    perp_dy = 1.0 / perp_norm
+
+    def plot_baffle_perp(true_x, y_invert):
+        plot_x = to_plot_x(true_x)
+        ax_long.plot([plot_x, plot_x + baffle_h_m * perp_dx], [y_invert, y_invert + baffle_h_m * perp_dy],
+                     color='#16416f', linewidth=3)
+
+    def plot_wall_segment(x_true_start, x_true_end, half_height):
+        x_true = np.linspace(x_true_start, x_true_end, 60)
+        x_plot = np.array([to_plot_x(v) for v in x_true])
+        y_top_seg = -x_true * gradient + half_height
+        y_bottom_seg = -x_true * gradient - half_height
+        ax_long.plot(x_plot, y_top_seg, color='#16416f', linewidth=2)
+        ax_long.plot(x_plot, y_bottom_seg, color='#16416f', linewidth=2)
+
     if shape == "round":
         radius = diameter_m / 2.0
-        x_curve = np.linspace(0, length_m, 100)
-        y_top = -x_curve * gradient + radius
-        y_bottom = -x_curve * gradient - radius
-        
-        ax_long.plot(x_curve, y_top, color='#16416f', linewidth=2)
-        ax_long.plot(x_curve, y_bottom, color='#16416f', linewidth=2)
-        
-        for x in x_positions:
-            y_bottom_at_x = -x * gradient - radius
-            baffle_top = y_bottom_at_x + baffle_h_m
-            ax_long.plot([x, x], [y_bottom_at_x, baffle_top], color='#16416f', linewidth=3)
-            
+        half_height = radius
         culvert_height = diameter_m
-        
     else:
-        height = box_h_m
-        x_line = np.array([0, length_m])
-        y_top = -x_line * gradient + height/2
-        y_bottom = -x_line * gradient - height/2
-        
-        ax_long.plot(x_line, y_top, color='#16416f', linewidth=2)
-        ax_long.plot(x_line, y_bottom, color='#16416f', linewidth=2)
-        
-        for x in x_positions:
-            y_bottom_at_x = -x * gradient - height/2
-            baffle_top = y_bottom_at_x + baffle_h_m
-            ax_long.plot([x, x], [y_bottom_at_x, baffle_top], color='#16416f', linewidth=3)
-            
+        half_height = box_h_m / 2.0
         culvert_height = box_h_m
 
-    # SPACING DIMENSION - arrow with "A" label
-    if len(x_positions) >= 2:
-        x1, x2 = x_positions[0], x_positions[1]
-        if shape == "round":
-            y_dim = -((x1 + x2)/2) * gradient + diameter_m/4
-        else:
-            y_dim = -((x1 + x2)/2) * gradient + box_h_m/4
-        
-        ax_long.annotate('', xy=(x1, y_dim), xytext=(x2, y_dim),
+    plot_wall_segment(0, near_cutoff, half_height)
+    if use_break:
+        plot_wall_segment(far_start, length_m, half_height)
+        y_top_at_gap = -near_cutoff * gradient + half_height
+        y_bottom_at_gap = -near_cutoff * gradient - half_height
+        draw_break_symbol(ax_long, y_bottom_at_gap, y_top_at_gap)
+        gap_centre_x = near_cutoff + gap_w / 2.0
+        ax_long.text(gap_centre_x, y_top_at_gap + 0.35, f"{len(x_positions)} BAFFLES TOTAL",
+                    ha='center', va='bottom', fontsize=9, fontweight='bold', color=NAVY)
+
+    for x in shown_positions:
+        y_bottom_at_x = -x * gradient - half_height
+        plot_baffle_perp(x, y_bottom_at_x)
+
+    # SPACING DIMENSION - arrow with "A" label (always within the near, true-scale segment)
+    if len(near_positions) >= 2:
+        x1, x2 = near_positions[0], near_positions[1]
+        y_dim = -((x1 + x2)/2) * gradient + half_height/2
+
+        ax_long.annotate('', xy=(to_plot_x(x1), y_dim), xytext=(to_plot_x(x2), y_dim),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=2))
-        ax_long.text((x1+x2)/2, y_dim+0.08, "A", 
+        ax_long.text(to_plot_x((x1+x2)/2), y_dim+0.08, "A",
                     ha='center', va='bottom', fontsize=11, fontweight='bold', color='#16416f')
 
-    # BAFFLE HEIGHT DIMENSION - arrow with "B" label
-    if x_positions:
-        x_ref = x_positions[-1]
-        if shape == "round":
-            y_bottom_ref = -x_ref * gradient - diameter_m/2 - 0.05
-        else:
-            y_bottom_ref = -x_ref * gradient - box_h_m/2 - 0.05
-        
+    # BAFFLE HEIGHT DIMENSION - arrow with "B" label (on the last shown baffle)
+    if shown_positions:
+        x_ref = shown_positions[-1]
+        y_bottom_ref = -x_ref * gradient - half_height - 0.05
+
         y_top_ref = y_bottom_ref + baffle_h_m + 0.1
-        x_dim = x_ref + 0.3
-        
+        x_dim = to_plot_x(x_ref) + 0.3
+
         ax_long.annotate('', xy=(x_dim, y_bottom_ref), xytext=(x_dim, y_top_ref),
                         arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=2))
-        
-        ax_long.text(x_dim+0.15, (y_bottom_ref + y_top_ref)/2, "B", 
+
+        ax_long.text(x_dim+0.15, (y_bottom_ref + y_top_ref)/2, "B",
                     ha='left', va='center', fontsize=11, fontweight='bold', color='#16416f')
 
     y_min = -length_m * gradient - culvert_height/2 - 0.4
     y_max = culvert_height/2 + 0.5
-    ax_long.set_xlim(-1.0, length_m + 1.5)
-    ax_long.set_ylim(y_min - 0.3, y_max + 0.3)
+    ax_long.set_xlim(-1.0, plot_length_end + 1.5)
+    ax_long.set_ylim(y_min - 0.3, (y_max + 0.5 if use_break else y_max) + 0.3)
     ax_long.axis('off')
 
     # ===== PLAN VIEW =====
-    ax_plan.set_title("PLAN VIEW", fontweight='bold', fontsize=12, pad=15, color='#16416f')
-    
+    plan_axes_top = 0.045 + 0.375
+    fig.text(long_centre_x, plan_axes_top - 0.04, "PLAN VIEW", ha='center', va='top',
+             fontweight='bold', fontsize=12, color=NAVY)
+
     if shape == "round":
         radius = diameter_m / 2.0
-        ax_plan.plot([0, length_m], [radius, radius], color='#16416f', linewidth=2)
-        ax_plan.plot([0, length_m], [-radius, -radius], color='#16416f', linewidth=2)
         culvert_width = diameter_m
     else:
-        width = box_w_m
-        height = box_h_m
-        ax_plan.plot([0, length_m], [height/2, height/2], color='#16416f', linewidth=2)
-        ax_plan.plot([0, length_m], [-height/2, -height/2], color='#16416f', linewidth=2)
         culvert_width = box_h_m
+
+    def plot_plan_wall(x_true_start, x_true_end, y_val):
+        ax_plan.plot([to_plot_x(x_true_start), to_plot_x(x_true_end)], [y_val, y_val],
+                    color='#16416f', linewidth=2)
+
+    plot_plan_wall(0, near_cutoff, culvert_width/2)
+    plot_plan_wall(0, near_cutoff, -culvert_width/2)
+    if use_break:
+        plot_plan_wall(far_start, length_m, culvert_width/2)
+        plot_plan_wall(far_start, length_m, -culvert_width/2)
+        draw_break_symbol(ax_plan, -culvert_width/2, culvert_width/2)
+
+    # Dotted centreline down the middle of the culvert (drawn continuous through any break,
+    # per drafting convention - only the object outline itself gets the break symbol)
+    ax_plan.plot([-0.3, plot_length_end + 0.3], [0, 0], linestyle=':', color=ACCENT, linewidth=1.2, zorder=0)
 
     # PLACEMENT TEXT
     if placement == "offset":
@@ -359,8 +412,8 @@ def generate_drawing(data, filename):
             placement_text = "ALTERNATING OFFSET BAFFLES"
     else:
         placement_text = "CENTRED BAFFLES"
-    
-    ax_plan.text(length_m/2, culvert_width/2 + 0.3, placement_text,
+
+    ax_plan.text(plot_length_end/2, culvert_width/2 + 0.3, placement_text,
                 ha='center', va='center', fontsize=11, fontweight='bold', color='#16416f',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#89ccea"))
 
@@ -389,7 +442,9 @@ def generate_drawing(data, filename):
             y_start = y_center - baffle_len_m/2
             y_end = y_center + baffle_len_m/2
 
-        ax_plan.plot([x, x], [y_start, y_end], color='#16416f', linewidth=3)
+        if x in shown_set:
+            plot_x = to_plot_x(x)
+            ax_plan.plot([plot_x, plot_x], [y_start, y_end], color='#16416f', linewidth=3)
 
         # Remember the first baffle's transverse footprint for the cross-section view
         if cross_section_x is None:
@@ -426,14 +481,15 @@ def generate_drawing(data, filename):
         ax_plan.text(x_diam-0.1, 0, "D",
                     ha='right', va='center', fontsize=11, fontweight='bold', rotation=90, color='#16416f')
 
-    # LENGTH - arrow with "E" label
+    # LENGTH - arrow with "E" label (spans the full plotted width; the true total length is
+    # what's labelled, same convention as the break itself)
     y_length_dim = -culvert_width/2 - 0.3
-    ax_plan.annotate('', xy=(0, y_length_dim), xytext=(length_m, y_length_dim),
+    ax_plan.annotate('', xy=(0, y_length_dim), xytext=(plot_length_end, y_length_dim),
                     arrowprops=dict(arrowstyle='<->', color='#89ccea', lw=2))
-    ax_plan.text(length_m/2, y_length_dim-0.1, "E", 
+    ax_plan.text(plot_length_end/2, y_length_dim-0.1, "E",
                 ha='center', va='top', fontsize=11, fontweight='bold', color='#16416f')
 
-    ax_plan.set_xlim(-1.0, length_m + 1.0)  # No extra space needed
+    ax_plan.set_xlim(-1.0, plot_length_end + 1.0)  # No extra space needed
     ax_plan.set_ylim(-culvert_width/2 - 0.8, culvert_width/2 + 1.2)
     ax_plan.axis('off')
 
