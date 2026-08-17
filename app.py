@@ -91,9 +91,17 @@ def generate_drawing(data, filename):
     units = data.get("units", "metric").lower()
     print(f"Drawing units: {units}")
 
-    # ---- Region (baffle end-cut style) - default to USA/90 deg for backward compatibility ----
-    region_str = str(data.get("region", data.get("Region", "usa"))).lower()
-    is_nz = any(k in region_str for k in ["nz", "new zealand"])
+    # ---- Region (baffle end-cut style) ----
+    # No explicit region field is sent today - the business rule is metric => NZ,
+    # imperial => USA, so infer it from units. An explicit "region"/"Region" field
+    # (if ever added upstream) overrides that inference.
+    region_input = data.get("region", data.get("Region"))
+    if region_input is not None:
+        region_str = str(region_input).lower()
+        is_nz = any(k in region_str for k in ["nz", "new zealand"])
+    else:
+        is_nz = (units == "metric")
+        region_str = f"inferred from units={units}"
     print(f"Region: {region_str} (NZ 45deg mitred: {is_nz})")
 
     # ---- Culvert ID (optional label) ----
