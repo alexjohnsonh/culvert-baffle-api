@@ -7,9 +7,16 @@ import tempfile
 import base64
 import uuid
 import os
-from matplotlib.patches import Rectangle, FancyBboxPatch
+from datetime import date
+from matplotlib.patches import Rectangle, FancyBboxPatch, Polygon
 import re
 from flask_cors import CORS
+
+plt.rcParams['font.family'] = 'monospace'
+
+NAVY = '#16416f'
+ACCENT = '#89ccea'
+PAPER_BG = '#ffffff'
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": [
@@ -83,7 +90,15 @@ def generate_drawing(data, filename):
     # ---- Get units preference (default to metric) ----
     units = data.get("units", "metric").lower()
     print(f"Drawing units: {units}")
-    
+
+    # ---- Region (baffle end-cut style) - default to USA/90 deg for backward compatibility ----
+    region_str = str(data.get("region", data.get("Region", "usa"))).lower()
+    is_nz = any(k in region_str for k in ["nz", "new zealand"])
+    print(f"Region: {region_str} (NZ 45deg mitred: {is_nz})")
+
+    # ---- Culvert ID (optional label) ----
+    culvert_id = str(data.get("culvertId", data.get("Culvert ID", data.get("culvert_id", "")))).strip()
+
     # ---- inputs & defaults ----
     # Parse length - strip both metric and imperial units
     length_str = str(data.get("culvertLength", data.get("Culvert Length", data.get("length", 10))))
@@ -172,41 +187,75 @@ def generate_drawing(data, filename):
     if is_small_culvert:
         x_positions = []
 
-    # Create figure with 2 subplots
-    fig, (ax_long, ax_plan) = plt.subplots(2, 1, figsize=(14, 10))
-    
-    # TITLE
-    if shape == "round":
-        title = f"Culvert {format_length(length_m, units)} | Ø{format_dimension(diameter_m*1000, units, 0)} | Gradient {round(gradient*100,1)}%"
-    else:
-        title = f"Culvert {format_length(length_m, units)} | {format_dimension(box_w_m*1000, units, 0)}×{format_dimension(box_h_m*1000, units, 0)} | Gradient {round(gradient*100,1)}%"
-    
-    fig.suptitle(title, fontsize=16, fontweight='bold', y=0.98, color='#16416f')
-    fig.patch.set_edgecolor('#16416f')
+    # ---- Drafting-sheet layout: title band, longitudinal+plan on the left, ----
+    # ---- parameters / cross-section / title block stacked on the right ----
+    fig = plt.figure(figsize=(15.5, 10.8))
+    fig.patch.set_facecolor(PAPER_BG)
+    fig.patch.set_edgecolor(NAVY)
     fig.patch.set_linewidth(3)
 
-    # ===== LEGEND BOX AT TOP RIGHT =====
-    legend_text = (
-        f"A - Spacing: {format_dimension(spacing_m*1000, units)}\n"
-        f"B - Baffle Height: {format_dimension(baffle_h_m*1000, units)}\n"
-        f"C - Baffle Length: {format_dimension(baffle_len_m*1000, units)}\n"
-        f"D - {'Diameter' if shape == 'round' else 'Width'}: {format_dimension(diameter_m*1000, units)}\n"
-        f"E - Culvert Length: {format_length(length_m, units)}"
-    )
-    
-    # Add legend to figure at top-right
-    fig.text(0.82, 0.935, legend_text,
-            ha='left', va='top', fontsize=9, 
-            fontweight='bold',
-            color='#16416f',
-            bbox=dict(boxstyle="round,pad=0.4", 
-                     facecolor='white', 
-                     edgecolor='#16416f',
-                     linewidth=2),
-            transform=fig.transFigure)
+    ax_long = fig.add_axes([0.035, 0.495, 0.55, 0.35]); ax_long.set_facecolor(PAPER_BG)
+    ax_plan = fig.add_axes([0.035, 0.045, 0.55, 0.375]); ax_plan.set_facecolor(PAPER_BG)
+    ax_cross = fig.add_axes([0.625, 0.205, 0.34, 0.46]); ax_cross.set_facecolor(PAPER_BG)
+    ax_params = fig.add_axes([0.625, 0.685, 0.34, 0.20]); ax_params.set_facecolor(PAPER_BG)
+    ax_titleblock = fig.add_axes([0.625, 0.045, 0.34, 0.14]); ax_titleblock.set_facecolor(PAPER_BG)
+
+    # TITLE
+    if shape == "round":
+        title = f"CULVERT {format_length(length_m, units)} | Ø{format_dimension(diameter_m*1000, units, 0)} | GRADIENT {round(gradient*100,1)}%"
+    else:
+        title = f"CULVERT {format_length(length_m, units)} | {format_dimension(box_w_m*1000, units, 0)}×{format_dimension(box_h_m*1000, units, 0)} | GRADIENT {round(gradient*100,1)}%"
+
+    if culvert_id:
+        title = f"{title} | {culvert_id}"
+
+    fig.text(0.5, 0.955, title, ha='center', va='center', fontsize=19, fontweight='bold', color=NAVY)
+    title_divider = plt.Line2D([0.035, 0.965], [0.905, 0.905], transform=fig.transFigure, color=NAVY, linewidth=1)
+    fig.add_artist(title_divider)
+
+    # ===== PARAMETERS BOX (top right) =====
+    def dim_sp(v_mm):
+        s = format_dimension(v_mm, units)
+        return s[:-2] + ' mm' if s.endswith('mm') else s
+
+    def len_sp(v_m):
+        s = format_length(v_m, units)
+        return s[:-1] + ' m' if s.endswith('m') else s
+
+    param_rows = [
+        ("A", "Spacing", dim_sp(spacing_m*1000)),
+        ("B", "Baffle height", dim_sp(baffle_h_m*1000)),
+        ("C", "Baffle length", dim_sp(baffle_len_m*1000)),
+        ("D", "Diameter" if shape == "round" else "Width", dim_sp(diameter_m*1000)),
+        ("E", "Culvert length", len_sp(length_m)),
+    ]
+    param_text = "\n".join(f"$\\mathbf{{{letter}}}$ {name} - {value}" for letter, name, value in param_rows)
+
+    ax_params.set_xlim(0, 1); ax_params.set_ylim(0, 1); ax_params.axis('off')
+    ax_params.add_patch(Rectangle((0, 0), 1, 1, fill=False, edgecolor=NAVY, linewidth=1.5, transform=ax_params.transAxes))
+    ax_params.text(0.07, 0.87, "PARAMETERS", fontsize=12, fontweight='bold', color=NAVY, va='top', ha='left')
+    ax_params.plot([0.07, 0.93], [0.73, 0.73], color=NAVY, linewidth=1)
+    ax_params.text(0.07, 0.62, param_text, fontsize=10, color=NAVY, va='top', ha='left', linespacing=1.6)
+
+    # ===== TITLE BLOCK (bottom right) =====
+    ax_titleblock.set_xlim(0, 1); ax_titleblock.set_ylim(0, 1); ax_titleblock.axis('off')
+    ax_titleblock.add_patch(Rectangle((0, 0), 1, 1, fill=False, edgecolor=NAVY, linewidth=1.5, transform=ax_titleblock.transAxes))
+    ax_titleblock.text(0.07, 0.88, "CULVERT BAFFLE LAYOUT", fontsize=11, fontweight='bold', color=NAVY, va='top', ha='left')
+    ax_titleblock.plot([0, 1], [0.76, 0.76], color=NAVY, linewidth=1)
+    ax_titleblock.plot([0, 1], [0.38, 0.38], color=NAVY, linewidth=1)
+    ax_titleblock.plot([0.5, 0.5], [0, 0.76], color=NAVY, linewidth=1)
+    ax_titleblock.text(0.07, 0.64, "ATS ENVIRONMENTAL", fontsize=9.5, color=NAVY, va='top', ha='left')
+    ax_titleblock.text(0.53, 0.64, "ADMIN@ATS-\nENVIRONMENTAL.COM", fontsize=9.5, color=NAVY, va='top', ha='left', linespacing=1.6)
+    ax_titleblock.text(0.07, 0.26, "NOT TO SCALE", fontsize=9.5, color=NAVY, va='top', ha='left')
+    ax_titleblock.text(0.53, 0.26, date.today().strftime("%d %b %Y").upper(), fontsize=9.5, color=NAVY, va='top', ha='left')
 
     # ===== LONGITUDINAL VIEW =====
-    ax_long.set_title("LONGITUDINAL VIEW", fontweight='bold', fontsize=12, pad=15, color='#16416f')
+    # Title aligned with the "PARAMETERS" header row, not floating above the axes
+    params_box_bottom, params_box_height = 0.685, 0.20
+    header_row_y = params_box_bottom + 0.87 * params_box_height
+    long_centre_x = 0.035 + 0.55 / 2.0
+    fig.text(long_centre_x, header_row_y, "LONGITUDINAL VIEW", ha='center', va='top',
+             fontweight='bold', fontsize=12, color=NAVY)
     
     if shape == "round":
         radius = diameter_m / 2.0
@@ -295,17 +344,21 @@ def generate_drawing(data, filename):
     if placement == "offset":
         if shape == "round":
             if units == "imperial":
-                placement_text = "Offset baffles (2\")"
+                placement_text = "OFFSET BAFFLES (2\")"
             else:
-                placement_text = "Offset baffles (50mm)"
+                placement_text = "OFFSET BAFFLES (50mm)"
         else:
-            placement_text = "Alternating offset baffles"
+            placement_text = "ALTERNATING OFFSET BAFFLES"
     else:
-        placement_text = "Centred baffles"
+        placement_text = "CENTRED BAFFLES"
     
     ax_plan.text(length_m/2, culvert_width/2 + 0.3, placement_text,
                 ha='center', va='center', fontsize=11, fontweight='bold', color='#16416f',
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="#89ccea"))
+
+    cross_section_x = None
+    cross_section_y_start = None
+    cross_section_y_end = None
 
     for i, x in enumerate(x_positions):
         if placement == "offset" and shape == "box":
@@ -327,8 +380,14 @@ def generate_drawing(data, filename):
             y_center = lateral_offset_m
             y_start = y_center - baffle_len_m/2
             y_end = y_center + baffle_len_m/2
-        
+
         ax_plan.plot([x, x], [y_start, y_end], color='#16416f', linewidth=3)
+
+        # Remember the first baffle's transverse footprint for the cross-section view
+        if cross_section_x is None:
+            cross_section_x = x
+            cross_section_y_start = y_start
+            cross_section_y_end = y_end
 
     # BAFFLE LENGTH - arrow with "C" label
     if x_positions and (placement != "centered" or shape == "round"):
@@ -370,27 +429,105 @@ def generate_drawing(data, filename):
     ax_plan.set_ylim(-culvert_width/2 - 0.8, culvert_width/2 + 1.2)
     ax_plan.axis('off')
 
-    plt.tight_layout()
-    plt.subplots_adjust(top=0.90, bottom=0.03)  # More space at top
-    
-    fig.patch.set_edgecolor('#16416f')
-    fig.patch.set_linewidth(3)
-    
+    # ===== CROSS-SECTION VIEW (end-on, at first baffle) =====
+    if shape == "round":
+        radius = diameter_m / 2.0
+        invert_y = -radius
+        outline = plt.Circle((0, 0), radius, fill=False, edgecolor=NAVY, linewidth=2, zorder=2)
+        ax_cross.add_patch(outline)
+        half_extent = radius
+    else:
+        invert_y = -box_h_m / 2.0
+        outline = Rectangle((-box_w_m/2, -box_h_m/2), box_w_m, box_h_m,
+                            fill=False, edgecolor=NAVY, linewidth=2, zorder=2)
+        ax_cross.add_patch(outline)
+        half_extent = box_w_m / 2.0
+
+    # Dashed crosshair centrelines (drafting convention)
+    ax_cross.plot([-half_extent - 0.3, half_extent + 0.3], [0, 0],
+                  linestyle=(0, (5, 4)), color=ACCENT, linewidth=1.2, alpha=0.3, zorder=0)
+    ax_cross.plot([0, 0], [invert_y - 0.3, -invert_y + 0.4],
+                  linestyle=(0, (5, 4)), color=ACCENT, linewidth=1.2, alpha=0.3, zorder=0)
+
+    if cross_section_x is not None:
+        base_width = cross_section_y_end - cross_section_y_start
+        base_centre = (cross_section_y_start + cross_section_y_end) / 2.0
+
+        if shape == "round":
+            R = radius
+            R_off = max(0.001, R - baffle_h_m)
+            theta_half = (base_width / 2.0) / R
+            theta_centre = base_centre / R
+            theta_lo, theta_hi = theta_centre - theta_half, theta_centre + theta_half
+
+            outer_theta = np.linspace(theta_lo, theta_hi, 40)
+            outer_pts = list(zip(R * np.sin(outer_theta), -R * np.cos(outer_theta)))
+
+            if is_nz:
+                # NZ: the main body is the SAME constant-offset curve as USA (follows the
+                # pipe wall at exactly baffle_h_m the whole way) - only the last bit of each
+                # end tapers, mitred at 45 deg (horizontal run == vertical rise == baffle_h_m),
+                # closing down to the true wall exactly at the specified base width.
+                reduced_half = max(0.0, base_width / 2.0 - baffle_h_m)
+                theta_reduced = reduced_half / R
+                theta_lo_in, theta_hi_in = theta_centre - theta_reduced, theta_centre + theta_reduced
+                inner_theta = np.linspace(theta_hi_in, theta_lo_in, 40)
+                inner_pts = list(zip(R_off * np.sin(inner_theta), -R_off * np.cos(inner_theta)))
+            else:
+                # USA: 90 deg square ends - concentric offset arc, same angular span
+                inner_theta = np.linspace(theta_hi, theta_lo, 40)
+                inner_pts = list(zip(R_off * np.sin(inner_theta), -R_off * np.cos(inner_theta)))
+
+            baffle_patch = Polygon(outer_pts + inner_pts, closed=True,
+                                    facecolor=PAPER_BG, edgecolor=NAVY, linewidth=1.5,
+                                    hatch='///', zorder=1)
+        else:
+            baffle_patch = Rectangle((cross_section_y_start, invert_y),
+                                     base_width, baffle_h_m,
+                                     facecolor=PAPER_BG, edgecolor=NAVY, linewidth=1.5,
+                                     hatch='///', zorder=1)
+
+        ax_cross.add_patch(baffle_patch)
+
+        # BAFFLE HEIGHT DIMENSION - arrow with "B" label
+        x_dim = half_extent + 0.3
+        ax_cross.annotate('', xy=(x_dim, invert_y), xytext=(x_dim, invert_y + baffle_h_m),
+                          arrowprops=dict(arrowstyle='<->', color=ACCENT, lw=2))
+        ax_cross.text(x_dim + 0.1, invert_y + baffle_h_m/2, "B",
+                     ha='left', va='center', fontsize=11, fontweight='bold', color=NAVY)
+
+        # BAFFLE LENGTH (base footprint) DIMENSION - arrow with "C" label
+        y_dim = invert_y - 0.3
+        ax_cross.annotate('', xy=(cross_section_y_start, y_dim), xytext=(cross_section_y_end, y_dim),
+                          arrowprops=dict(arrowstyle='<->', color=ACCENT, lw=2))
+        ax_cross.text(base_centre, y_dim - 0.1, "C",
+                     ha='center', va='top', fontsize=11, fontweight='bold', color=NAVY)
+
+    ax_cross.set_xlim(-half_extent - 0.9, half_extent + 0.9)
+    ax_cross.set_ylim(invert_y - 0.6, -invert_y + 0.4)
+    ax_cross.set_aspect('equal')
+    ax_cross.axis('off')
+
+    cross_title = "CROSS-SECTION VIEW"
+    if shape == "round":
+        cross_title += " - NZ (45° MITRED ENDS)" if is_nz else " - USA (90° SQUARE ENDS)"
+    ax_cross.set_title(cross_title, fontweight='bold', fontsize=12, pad=15, color=NAVY)
+
     # WARNING for small culverts
     if is_small_culvert:
         warning_diameter = format_dimension(diameter_mm, units, 1)
-        fig.text(0.5, 0.5, 
+        fig.text(0.30, 0.45,
                 'CULVERT TOO SMALL FOR BAFFLES \n\n'
                 f'Diameter: {warning_diameter}\n\n'
                 'Culverts 599mm (23.6") or under require alternative solutions.\n'
                 'Please contact us directly for fish passage options.',
-                ha='center', va='center', fontsize=16, fontweight='bold',
-                color='#16416f', 
-                bbox=dict(boxstyle="round,pad=1.5", facecolor='#89ccea', 
-                         edgecolor='#16416f', linewidth=4, alpha=0.9),
+                ha='center', va='center', fontsize=15, fontweight='bold',
+                color=NAVY,
+                bbox=dict(boxstyle="round,pad=1.5", facecolor=ACCENT,
+                         edgecolor=NAVY, linewidth=4, alpha=0.9),
                 transform=fig.transFigure, zorder=100)
-    
-    plt.savefig(filename, dpi=200, bbox_inches='tight', facecolor='white')
+
+    plt.savefig(filename, dpi=200, facecolor=fig.get_facecolor())
     plt.close(fig)
 
 
