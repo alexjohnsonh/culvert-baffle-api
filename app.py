@@ -518,7 +518,7 @@ def generate_drawing(data, filename):
 
     cross_title = "CROSS-SECTION VIEW"
     if shape == "round":
-        cross_title += " - NZ (45° MITRED ENDS)" if is_nz else " - USA (90° SQUARE ENDS)"
+        cross_title += " - 45° ENDS" if is_nz else " - 90° ENDS"
     ax_cross.set_title(cross_title, fontweight='bold', fontsize=12, pad=15, color=NAVY)
 
     # WARNING for small culverts
